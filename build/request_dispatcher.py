@@ -19,10 +19,10 @@ def handle_build_post_request(request_params):
             if "sort_filter_column" in order_by and "sort_filter_order" in order_by:
                 order_by_string += " order by {} {}".format(order_by["sort_filter_column"], order_by["sort_filter_order"])
         else:
-            order_by_string += " order by iso_time desc"
+            order_by_string += " order by time_iso desc"
 
     else:
-        order_by_string += " order by iso_time desc"
+        order_by_string += " order by time_iso desc"
 
     for column in request_params:
         for column_condition in request_params[column]:

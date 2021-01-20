@@ -4,8 +4,6 @@ from django.core import serializers
 from django.utils.timezone import now
 import json
 from lib.build_reports.daily_import import import_daily_data
-from itertools import islice
-
 from datetime import datetime
 from time import strftime
 
@@ -42,7 +40,7 @@ class UnixTimestampField(models.DateTimeField):
         if value==None:
             return None
         # Use '%Y%m%d%H%M%S' for MySQL < 4.1
-        return strftime('%Y-%m-%d %H:%M:%S',value.timetuple())
+        return strftime('%Y-%m-%d %H:%M:%S', value.timetuple())
 
 
 def generate_auto_health_request_with_missing_start_time(request_type):
@@ -69,17 +67,17 @@ class BuildManager(models.Manager):
 
         for raw_result in raw_results:
             result = dict()
-            result["build_id"] = raw_result.build_id
-            result["fault_code"] = raw_result.fault_code
-            result["task_id"] = raw_result.task_id
-            result["iso_time"] = raw_result.build_iso_time
+            result["build_id"] = raw_result.build_0_id
+            result["fault_code"] = raw_result.brew_faultCode
+            result["task_id"] = raw_result.brew_task_id
+            result["iso_time"] = raw_result.build_time_iso
             result["group"] = raw_result.group
             result["label_name"] = raw_result.label_name
             result["jenkins_build_url"] = raw_result.jenkins_build_url
             result["nvr"] = raw_result.build_0_nvr
             result["build_source"] = raw_result.build_0_source
             result["dg_name"] = raw_result.dg_name
-            result["build_commit_url_github"] = raw_result.build_commit_url_github
+            result["build_commit_url_github"] = raw_result.label_io_openshift_build_commit_url
             result["jenkins_build_url"] = raw_result.jenkins_build_url
             result["jenkins_build_number"] = raw_result.jenkins_build_number
             result["jenkins_job_name"] = raw_result.jenkins_job_name
@@ -95,15 +93,15 @@ class BuildManager(models.Manager):
 
     def get_all_for_a_date_for_a_column(self, column_name, column_value, date):
         raw_results = self.raw(
-            "select log_build_id, build_id, fault_code, task_id, build_iso_time, `group`, label_name, jenkins_build_url from log_build where date(build_iso_time) = \"{}\" and {}=\"{}\"".format(
+            "select log_log_build_id, build_0_id, brew_faultCode, brew_task_id, build_time_iso, `group`, label_name, jenkins_build_url from log_build where date(build_time_iso) = \"{}\" and {}=\"{}\"".format(
                 date, column_name, column_value))
         results = []
         for raw_result in raw_results:
             result = dict()
-            result["build_id"] = raw_result.build_id
-            result["fault_code"] = raw_result.fault_code
-            result["task_id"] = raw_result.task_id
-            result["iso_time"] = raw_result.build_iso_time
+            result["build_id"] = raw_result.build_0_id
+            result["fault_code"] = raw_result.brew_faultCode
+            result["task_id"] = raw_result.brew_task_id
+            result["iso_time"] = raw_result.build_time_iso
             result["group"] = raw_result.group
             result["label_name"] = raw_result.label_name
             result["jenkins_build_url"] = raw_result.jenkins_build_url
@@ -112,14 +110,14 @@ class BuildManager(models.Manager):
 
     def get_all_for_a_date(self,date):
 
-        raw_results = self.raw("select build_record_id, build_id, fault_code, task_id, iso_time, `group`, label_name jenkins_build_url from log_build where date(build_iso_time) = \"{}\"".format(date))
+        raw_results = self.raw("select log_log_build_id, build_0_id, brew_faultCode, brew_task_id, build_time_iso, `group`, label_name jenkins_build_url from log_build where date(build_time_iso) = \"{}\"".format(date))
         results = []
         for raw_result in raw_results:
             result = dict()
-            result["build_id"] = raw_result.build_id
-            result["fault_code"] = raw_result.fault_code
-            result["task_id"] = raw_result.task_id
-            result["iso_time"] = raw_result.build_iso_time
+            result["build_id"] = raw_result.build_0_id
+            result["fault_code"] = raw_result.brew_faultCode
+            result["task_id"] = raw_result.brew_task_id
+            result["iso_time"] = raw_result.build_time_iso
             result["group"] = raw_result.group
             result["label_name"] = raw_result.label_name
             result["jenkins_build_url"] = raw_result.jenkins_build_url
@@ -131,40 +129,12 @@ class BuildManager(models.Manager):
 
         cursor = connection.cursor()
         try:
-            cursor.execute("insert into log_build_daily_summary(fault_code, date, dg_name, label_name, label_version, request_id, count) select fault_code, date_format(iso_time, \"%Y-%m-%d\") as date, dg_name,  label_name, label_version, {} as request_id,   count(*) as count from log_build where date_format(iso_time, \"%Y-%m-%d\") = \"{}\" group by 1,2,3,4,5".format(request_id, date))
+            cursor.execute("insert into log_build_daily_summary(fault_code, date, dg_name, label_name, label_version, count) select brew_faultCode, date_format(time_iso, \"%Y-%m-%d\") as date, dg_name,  label_name, label_version, count(*) as count from log_build where date_format(iso_time, \"%Y-%m-%d\") = \"{}\" group by 1,2,3,4,5".format( date))
             HealthRequests.objects.update_daily_report_status_for_a_date(request_id)
             return True
         except Exception as e:
             print(e)
             return False
-
-    def write_to_db_import_data(self, date, data):
-
-        model_objects = []
-
-        max_log_build_id = self.raw("SELECT 1 as log_build_id ,`AUTO_INCREMENT` as max_log_build_id FROM  INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = 'build' AND TABLE_NAME   = 'log_build'")
-
-        if max_log_build_id:
-            max_log_build_id = max_log_build_id[0].max_log_build_id + 1
-        else:
-            max_log_build_id = 1
-
-        for data_point in data:
-            print(max_log_build_id)
-            data_point["log_build_id"] = max_log_build_id
-            max_log_build_id += 1
-            m = Build(**data_point)
-            model_objects.append(m)
-
-        batch_size = 100
-        current_batch = 0
-        while True:
-            batch = model_objects[current_batch*batch_size:(current_batch+1)*batch_size]
-            if not batch:
-                break
-            self.bulk_create(batch, batch_size=batch_size)
-            current_batch += 1
-        HealthRequests.objects.update_daily_import_status_for_a_date(date=date)
 
 
 class HealthRequestManager(models.Manager):
@@ -301,44 +271,63 @@ class Build(models.Model):
     class Meta:
         db_table = "log_build"
 
-    log_build_id = models.AutoField(primary_key=True)
-    request_id = models.BigIntegerField(blank=True, null=True)
-    build_id = models.CharField(max_length=300, name="build_id", blank=True, null=True)
-    fault_code = models.CharField(blank=True, null=True, max_length=300, name="fault_code")
-    image_shas = models.CharField(max_length=2000, name="image_shas", blank=True, null=True)
-    task_id = models.CharField(max_length=100, name="task_id", blank=True, null=True)
-    task_state = models.CharField(max_length=100, name="task_state", blank=True, null=True)
-    build_0_id = models.CharField(max_length=300, name="build_0_id", blank=True, null=True)
-    build_0_name = models.CharField(max_length=300, name="build_0_name", blank=True, null=True)
-    build_0_nvr = models.CharField(max_length=500, name="build_0_nvr", blank=True, null=True)
-    build_0_package_id = models.CharField(max_length=300, name="build_0_package_id", blank=True, null=True)
-    build_0_release = models.CharField(max_length=300, name="build_0_release", blank=True, null=True)
-    build_0_source = models.CharField(max_length=300, name="build_0_source", blank=True, null=True)
-    build_0_version = models.CharField(max_length=300, name="build_0_version", blank=True, null=True)
-    build_iso_time = models.DateTimeField(name="build_iso_time", blank=True, null=True)
-    build_unix_time = models.FloatField(name="build_unix_time", blank=True, null=True)
-    dg_commit = models.CharField(max_length=300, name="dg_commit", blank=True, null=True)
-    dg_name = models.CharField(max_length=300, name="dg_name", blank=True, null=True)
-    dg_namespace = models.CharField(max_length=300, name="dg_namespace", blank=True, null=True)
-    dg_qualified_key = models.CharField(max_length=300, name="dg_qualified_key", blank=True, null=True)
-    dg_qualified_name = models.CharField(max_length=300, name="dg_qualified_name", blank=True, null=True)
-    group = models.CharField(max_length=300, name="group", blank=True, null=True)
-    incomplete = models.CharField(max_length=300, name="incomplete", blank=True, null=True)
-    jenkins_build_number = models.CharField(max_length=300, name="jenkins_build_number", blank=True, null=True)
-    jenkins_build_url = models.CharField(max_length=300, name="jenkins_build_url", blank=True, null=True)
-    jenkins_job_name = models.CharField(max_length=300, name="jenkins_job_name", blank=True, null=True)
-    jenkins_job_url = models.CharField(max_length=300, name="jenkins_job_url", blank=True, null=True)
-    jenkins_node_name = models.CharField(max_length=300, name="jenkins_node_name", blank=True, null=True)
-    label_com_redhat_component = models.CharField(max_length=300, name="label_com_redhat_component", blank=True, null=True)
-    label_io_openshift_build_commit_id = models.CharField(max_length=300, name="label_io_openshift_build_commit_id", blank=True, null=True)
-    build_commit_url_github = models.CharField(max_length=300, name="build_commit_url_github", blank=True, null=True)
-    label_io_openshift_build_source_location = models.CharField(max_length=300, name="label_io_openshift_build_source_location", blank=True, null=True)
-    label_io_openshift_maintainer_product = models.CharField(max_length=300, name="label_io_openshift_maintainer_product", blank=True, null=True)
-    label_io_openshift_tags = models.CharField(max_length=300, name="label_io_openshift_tags", blank=True, null=True)
-    label_name = models.CharField(max_length=300, name="label_name", blank=True, null=True)
-    label_version = models.CharField(max_length=300, name="label_version", blank=True, null=True)
-    iso_time = models.DateTimeField(name="iso_time", blank=True, null=True)
-    unix_time = models.FloatField(name="unix_time", blank=True, null=True)
+    log_log_build_id = models.AutoField(primary_key=True)
+    label_io_openshift_tags = models.CharField(max_length=1000, blank=True, null=True)
+    dg_name = models.CharField(max_length=1000, blank=True, null=True)
+    label_release = models.CharField(max_length=1000, blank=True, null=True)
+    label_version = models.CharField(max_length=1000, blank=True, null=True)
+    label_io_openshift_build_source_location = models.CharField(max_length=1000, blank=True, null=True)
+    brew_task_state = models.CharField(max_length=1000, blank=True, null=True)
+    label_com_redhat_component = models.CharField(max_length=1000, blank=True, null=True)
+    dg_namespace = models.CharField(max_length=1000, blank=True, null=True)
+    build_time_unix = models.BigIntegerField(blank=True, null=True)
+    runtime_uuid = models.FloatField(blank=True, null=True)
+    env_OS_GIT_TREE_STATE = models.CharField(max_length=1000, blank=True, null=True)
+    dg_commit = models.CharField(max_length=1000, blank=True, null=True)
+    env_OS_GIT_MINOR = models.BigIntegerField(blank=True, null=True)
+    env_OS_GIT_MAJOR = models.BigIntegerField(blank=True, null=True)
+    brew_task_id = models.BigIntegerField(blank=True, null=True)
+    label_io_openshift_build_commit_id = models.CharField(max_length=1000, blank=True, null=True)
+    env_OS_GIT_COMMIT = models.CharField(max_length=1000, blank=True, null=True)
+    incomplete = models.CharField(max_length=1000, blank=True, null=True)
+    env_OS_GIT_VERSION = models.CharField(max_length=1000, blank=True, null=True)
+    group = models.CharField(max_length=1000, blank=True, null=True)
+    dg_qualified_key = models.CharField(max_length=1000, blank=True, null=True)
+    env_OS_GIT_PATCH = models.BigIntegerField(blank=True, null=True)
+    time_iso = models.DateTimeField(blank=True, null=True)
+    dg_qualified_name = models.CharField(max_length=1000, blank=True, null=True)
+    label_io_openshift_build_commit_url = models.CharField(max_length=1000, blank=True, null=True)
+    brew_faultCode = models.BigIntegerField(blank=True, null=True)
+    build_time_iso = models.DateTimeField( blank=True, null=True)
+    time_unix = models.BigIntegerField(blank=True, null=True)
+    label_io_openshift_maintainer_product = models.CharField(max_length=1000, blank=True, null=True)
+    label_name = models.CharField(max_length=1000, blank=True, null=True)
+    label_io_openshift_maintainer_component = models.CharField(max_length=1000, blank=True, null=True)
+    brew_build_ids = models.BigIntegerField(blank=True, null=True)
+    jenkins_build_number = models.BigIntegerField(blank=True, null=True)
+    build_0_package_id = models.BigIntegerField(blank=True, null=True)
+    build_0_version = models.CharField(max_length=1000, blank=True, null=True)
+    brew_image_shas = models.CharField(max_length=1000, blank=True, null=True)
+    jenkins_job_name = models.CharField(max_length=1000, blank=True, null=True)
+    runtime_user = models.CharField(max_length=1000, blank=True, null=True)
+    jenkins_node_name = models.CharField(max_length=1000, blank=True, null=True)
+    build_0_nvr = models.CharField(max_length=1000, blank=True, null=True)
+    build_0_release = models.CharField(max_length=1000, blank=True, null=True)
+    build_0_name = models.CharField(max_length=1000, blank=True, null=True)
+    jenkins_job_url = models.CharField(max_length=1000, blank=True, null=True)
+    build_0_id = models.BigIntegerField(blank=True, null=True)
+    jenkins_build_url = models.CharField(max_length=1000, blank=True, null=True)
+    build_0_source = models.CharField(max_length=1000, blank=True, null=True)
+    label_io_openshift_maintainer_subcomponent = models.CharField(max_length=1000, blank=True, null=True)
+    label_io_openshift_release_operator = models.CharField(max_length=1000, blank=True, null=True)
+    label_io_openshift_expose_services = models.CharField(max_length=1000, blank=True, null=True)
+    env_KUBE_GIT_MINOR = models.CharField(max_length=1000, blank=True, null=True)
+    env_KUBE_GIT_VERSION = models.CharField(max_length=1000, blank=True, null=True)
+    env_KUBE_GIT_MAJOR = models.BigIntegerField(blank=True, null=True)
+    env_KUBE_GIT_COMMIT = models.CharField(max_length=1000, blank=True, null=True)
+    env_KUBE_GIT_TREE_STATE = models.CharField(max_length=1000, blank=True, null=True)
+    label_io_openshift_build_versions = models.CharField(max_length=1000, blank=True, null=True)
+    label_io_openshift_s2i_scripts_url = models.CharField(max_length=1000, blank=True, null=True)
     created_at = UnixTimestampField(auto_created=True, null=True)
     updated_at = UnixTimestampField(auto_created=True, null=True)
     objects = BuildManager()
